@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Cost Manager - idb.js Test</title>
+</head>
+<body>
+<script src="idb.js"></script>
+<script>
+    async function test() {
+        try {
+            const db = await idb.openCostsDB("costsdb", 1);
+            console.log("creating db succeeded");
+
+            // 1) Set rates URL (your Render static file)
+            //const ratesUrl = "https://rates-json-file.onrender.com/rates.json";
+            //await db.setRatesUrl(ratesUrl);
+            //console.log("setRatesUrl succeeded:", ratesUrl);
+
+            // 2) Add multiple costs (mix currencies + categories)
+            const items = [
+                { sum: 200, currency: "USD", category: "FOOD",      description: "pizza" },
+                { sum: 120, currency: "GBP", category: "EDUCATION", description: "Zoom License" },
+                { sum: 50,  currency: "EURO", category: "FOOD",     description: "sandwich" },
+                { sum: 180, currency: "ILS", category: "CAR",       description: "fuel" },
+                { sum: 25,  currency: "USD", category: "HEALTH",    description: "vitamins" }
+            ];
+
+            for (let i = 0; i < items.length; i++) {
+                const res = await db.addCost(items[i]);
+                console.log(`adding cost #${i + 1} succeeded`, res);
+            }
+
+            // 3) Get report for current year/month (because addCost saves today's date)
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1; // 1-12
+
+            // Try getting the same report in different currencies
+            const reportUSD  = await db.getReport(year, month, "USD");
+            const reportILS  = await db.getReport(year, month, "ILS");
+            const reportEURO = await db.getReport(year, month, "EURO");
+            const reportGBP  = await db.getReport(year, month, "GBP");
+
+            console.log("REPORT (USD):", reportUSD);
+            console.log("REPORT (ILS):", reportILS);
+            console.log("REPORT (EURO):", reportEURO);
+            console.log("REPORT (GBP):", reportGBP);
+
+        } catch (err) {
+            console.error("TEST FAILED:", err);
+        }
+    }
+
+    test();
+</script>
+</body>
+</html>
