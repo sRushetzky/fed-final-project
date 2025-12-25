@@ -17,6 +17,14 @@ export default function Navbar() {
                     Report
                 </Button>
 
+                <Button color="inherit" component={RouterLink} to="/charts/pie">
+                    Pie Chart
+                </Button>
+
+                <Button color="inherit" component={RouterLink} to="/charts/bar">
+                    Bar Chart
+                </Button>
+
                 <Button color="inherit" component={RouterLink} to="/settings">
                     Settings
                 </Button>

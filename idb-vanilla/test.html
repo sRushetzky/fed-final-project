@@ -13,9 +13,9 @@
             console.log("creating db succeeded");
 
             // 1) Set rates URL (your Render static file)
-            //const ratesUrl = "https://fed-final-project-up72.onrender.com/rates.json";
-            //await db.setRatesUrl(ratesUrl);
-            //console.log("setRatesUrl succeeded:", ratesUrl);
+            const ratesUrl = "https://fed-final-project-up72.onrender.com/rates.json";
+            await db.setRatesUrl(ratesUrl);
+            console.log("setRatesUrl succeeded:", ratesUrl);
 
             // 2) Add multiple costs (mix currencies + categories)
             const items = [

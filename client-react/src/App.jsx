@@ -3,6 +3,8 @@ import Navbar from "./components/Navbar";
 import AddCostPage from "./pages/AddCostPage";
 import SettingsPage from "./pages/SettingsPage";
 import ReportPage from "./pages/ReportPage";
+import PieChartPage from "./pages/PieChartPage";
+import BarChartPage from "./pages/BarChartPage";
 
 export default function App() {
     return (
@@ -13,6 +15,8 @@ export default function App() {
                 <Route path="/add-cost" element={<AddCostPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/report" element={<ReportPage />} />
+                <Route path="/charts/pie" element={<PieChartPage />} />
+                <Route path="/charts/bar" element={<BarChartPage />} />
             </Routes>
         </BrowserRouter>
     );

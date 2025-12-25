@@ -28,7 +28,9 @@ export async function openCostsDB(databaseName, databaseVersion) {
             resolve({
                 addCost,
                 getReport,
-                setRatesUrl
+                setRatesUrl,
+                getPieChartData,
+                getBarChartData
             });
         };
 
@@ -38,14 +40,53 @@ export async function openCostsDB(databaseName, databaseVersion) {
     });
 }
 
+/* ----------------------- Helpers (avoid duplication) ----------------------- */
+
+function requireOpenDb() {
+    if (!_db) throw new Error("Database is not open. Call openCostsDB first.");
+}
+
+function defaultRates() {
+    return { USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 };
+}
+
+function convert(sum, fromCur, toCur, rates) {
+    const usd = sum / rates[fromCur];
+    return usd * rates[toCur];
+}
+
+async function readRatesUrl(settingsStore) {
+    return new Promise((res, rej) => {
+        const req = settingsStore.get("ratesUrl");
+        req.onsuccess = () => res(req.result ? req.result.value : null);
+        req.onerror = () => rej(req.error);
+    });
+}
+
+async function fetchRates(ratesUrl) {
+    let rates = defaultRates();
+
+    if (ratesUrl) {
+        const response = await fetch(ratesUrl);
+        if (!response.ok) throw new Error("Failed to fetch exchange rates");
+        rates = await response.json();
+    }
+
+    return rates;
+}
+
+/* ------------------------------ API methods ------------------------------ */
+
 /**
  * addCost(cost)
  * Adds a new cost item to IndexedDB and resolves to the added item.
  */
 async function addCost(cost) {
     return new Promise((resolve, reject) => {
-        if (!_db) {
-            reject(new Error("Database is not open. Call openCostsDB first."));
+        try {
+            requireOpenDb();
+        } catch (e) {
+            reject(e);
             return;
         }
 
@@ -83,11 +124,17 @@ async function addCost(cost) {
 /**
  * getReport(year, month, currency)
  * Returns a Promise resolving to a detailed report object.
+ *
+ * IMPORTANT (for charts):
+ * This React version returns costs with sum already converted to the requested currency,
+ * so the UI can safely aggregate by category without extra conversion.
  */
 async function getReport(year, month, currency) {
     return new Promise((resolve, reject) => {
-        if (!_db) {
-            reject(new Error("Database is not open. Call openCostsDB first."));
+        try {
+            requireOpenDb();
+        } catch (e) {
+            reject(e);
             return;
         }
 
@@ -95,7 +142,7 @@ async function getReport(year, month, currency) {
         const costsStore = tx.objectStore("costs");
         const settingsStore = tx.objectStore("settings");
 
-        const costs = [];
+        const rawCosts = [];
         const cursorReq = costsStore.openCursor();
 
         cursorReq.onerror = function () {
@@ -106,14 +153,13 @@ async function getReport(year, month, currency) {
             const cursor = event.target.result;
 
             if (!cursor) {
-                loadRatesAndBuildReport().catch(reject);
+                build().catch(reject);
                 return;
             }
 
             const r = cursor.value;
-
             if (r.year === year && r.month === month) {
-                costs.push({
+                rawCosts.push({
                     sum: r.sum,
                     currency: r.currency,
                     category: r.category,
@@ -125,36 +171,24 @@ async function getReport(year, month, currency) {
             cursor.continue();
         };
 
-        async function loadRatesAndBuildReport() {
-            const ratesUrl = await new Promise((res, rej) => {
-                const req = settingsStore.get("ratesUrl");
-                req.onsuccess = () => res(req.result ? req.result.value : null);
-                req.onerror = () => rej(req.error);
-            });
+        async function build() {
+            const ratesUrl = await readRatesUrl(settingsStore);
+            const rates = await fetchRates(ratesUrl);
 
-            let rates = { USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 };
-
-            if (ratesUrl) {
-                const response = await fetch(ratesUrl);
-                if (!response.ok) throw new Error("Failed to fetch exchange rates");
-                rates = await response.json();
-            }
-
-            function convert(sum, fromCur, toCur) {
-                const usd = sum / rates[fromCur];
-                return usd * rates[toCur];
-            }
+            const convertedCosts = rawCosts.map((c) => ({
+                ...c,
+                sum: Number(convert(c.sum, c.currency, currency, rates).toFixed(2)),
+                currency
+            }));
 
             let total = 0;
-            for (const c of costs) {
-                total += convert(c.sum, c.currency, currency);
-            }
+            for (const c of convertedCosts) total += c.sum;
 
             resolve({
                 year,
                 month,
-                costs,
-                total: { currency, total }
+                costs: convertedCosts,
+                total: { currency, total: Number(total.toFixed(2)) }
             });
         }
     });
@@ -166,8 +200,10 @@ async function getReport(year, month, currency) {
  */
 async function setRatesUrl(url) {
     return new Promise((resolve, reject) => {
-        if (!_db) {
-            reject(new Error("Database is not open. Call openCostsDB first."));
+        try {
+            requireOpenDb();
+        } catch (e) {
+            reject(e);
             return;
         }
 
@@ -182,5 +218,84 @@ async function setRatesUrl(url) {
         request.onerror = function () {
             reject(request.error);
         };
+    });
+}
+
+/**
+ * getPieChartData(year, month, currency)
+ * Returns: [{ name: <category>, value: <sumInSelectedCurrency> }, ...]
+ * Uses getReport (which already converts costs in this React version).
+ */
+async function getPieChartData(year, month, currency) {
+    const report = await getReport(year, month, currency);
+
+    const map = new Map();
+    for (const c of report.costs) {
+        map.set(c.category, (map.get(c.category) || 0) + c.sum);
+    }
+
+    return Array.from(map.entries()).map(([name, value]) => ({
+        name,
+        value: Number(value.toFixed(2))
+    }));
+}
+
+/**
+ * getBarChartData(year, currency)
+ * Returns: [{ month: 1..12, total: <sumInSelectedCurrency> }, ...]
+ * Single DB scan + single rates fetch (no 12x getReport).
+ */
+async function getBarChartData(year, currency) {
+    return new Promise((resolve, reject) => {
+        try {
+            requireOpenDb();
+        } catch (e) {
+            reject(e);
+            return;
+        }
+
+        const tx = _db.transaction(["costs", "settings"], "readonly");
+        const costsStore = tx.objectStore("costs");
+        const settingsStore = tx.objectStore("settings");
+
+        // collect raw items per month (to convert after we load rates once)
+        const perMonth = Array.from({ length: 12 }, () => []);
+        const cursorReq = costsStore.openCursor();
+
+        cursorReq.onerror = function () {
+            reject(cursorReq.error);
+        };
+
+        cursorReq.onsuccess = function (event) {
+            const cursor = event.target.result;
+
+            if (!cursor) {
+                build().catch(reject);
+                return;
+            }
+
+            const r = cursor.value;
+            if (r.year === year && r.month >= 1 && r.month <= 12) {
+                perMonth[r.month - 1].push({ sum: r.sum, currency: r.currency });
+            }
+
+            cursor.continue();
+        };
+
+        async function build() {
+            const ratesUrl = await readRatesUrl(settingsStore);
+            const rates = await fetchRates(ratesUrl);
+
+            const data = [];
+            for (let m = 1; m <= 12; m++) {
+                let total = 0;
+                for (const item of perMonth[m - 1]) {
+                    total += convert(item.sum, item.currency, currency, rates);
+                }
+                data.push({ month: m, total: Number(total.toFixed(2)) });
+            }
+
+            resolve(data);
+        }
     });
 }

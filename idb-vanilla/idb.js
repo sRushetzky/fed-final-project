@@ -1,6 +1,5 @@
-// idb.js (Vanilla JS)
+// idb.js (Vanilla JS - synced structure with React version)
 (function () {
-
     // Holds the opened IndexedDB instance
     let _db = null;
 
@@ -19,7 +18,6 @@
                 if (!db.objectStoreNames.contains("costs")) {
                     db.createObjectStore("costs", { keyPath: "id", autoIncrement: true });
                 }
-
                 if (!db.objectStoreNames.contains("settings")) {
                     db.createObjectStore("settings", { keyPath: "key" });
                 }
@@ -29,13 +27,8 @@
                 // event.target.result is the opened IDBDatabase instance
                 // Save it in a private variable so other functions can access it
                 _db = event.target.result;
-
                 // Resolve with an object that exposes the required API
-                resolve({
-                    addCost: addCost,
-                    getReport: getReport,
-                    setRatesUrl: setRatesUrl
-                });
+                resolve({ addCost, getReport, setRatesUrl });
             };
 
             request.onerror = function () {
@@ -44,19 +37,65 @@
         });
     }
 
+    // ----------------------- Helpers (avoid duplication) -----------------------
+
+    function requireOpenDb() {
+        if (!_db) throw new Error("Database is not open. Call openCostsDB first.");
+    }
+
+    // Default exchange rates (used when no URL is set or for local testing)
+    function defaultRates() {
+        return { USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 };
+    }
+
+    // Convert an amount from one currency to another via USD
+    function convert(sum, fromCur, toCur, rates) {
+        const usd = sum / rates[fromCur];
+        return usd * rates[toCur];
+    }
+
+    function readRatesUrl(settingsStore) {
+        return new Promise((res, rej) => {
+            const req = settingsStore.get("ratesUrl");
+            req.onsuccess = () => res(req.result ? req.result.value : null);
+            req.onerror = () => rej(req.error);
+        });
+    }
+
+    // Fetch exchange rates from the provided URL (as required)
+    async function fetchRates(ratesUrl) {
+        let rates = defaultRates();
+
+        if (ratesUrl) {
+            console.log(`Fetching exchange rates from ${ratesUrl}`);
+            const response = await fetch(ratesUrl);
+
+            // If HTTP response is not successful, treat as error
+            if (!response.ok) throw new Error("Failed to fetch exchange rates");
+
+            // Parse the JSON response into the rates object
+            rates = await response.json();
+        }
+
+        return rates;
+    }
+
+    // ------------------------------ API methods ------------------------------
+
     /*
      * addCost(cost)
      * Adds a new cost item and returns a Promise for the added item.
      */
     async function addCost(cost) {
         return new Promise((resolve, reject) => {
-            if (!_db) {
-                reject(new Error("Database is not open. Call openCostsDB first."));
+            try {
+                requireOpenDb();
+            } catch (e) {
+                reject(e);
                 return;
             }
 
             const now = new Date();
-
             const record = {
                 sum: cost.sum,
                 currency: cost.currency,
@@ -99,8 +138,10 @@
      */
     async function getReport(year, month, currency) {
         return new Promise((resolve, reject) => {
-            if (!_db) {
-                reject(new Error("Database is not open. Call openCostsDB first."));
+            try {
+                requireOpenDb();
+            } catch (e) {
+                reject(e);
                 return;
             }
 
@@ -126,7 +167,7 @@
                 if (!cursor) {
                     // Cursor reached the end → all costs were read
                     // Now we can load exchange rates and calculate the report
-                    loadRatesAndBuildReport().catch(reject);
+                    build().catch(reject);
                     return;
                 }
 
@@ -148,48 +189,23 @@
             };
 
             // Loads exchange rates (via fetch if URL exists) and builds final report
-            async function loadRatesAndBuildReport() {
+            async function build() {
                 // Read the exchange rates URL from the "settings" object store
-                const ratesUrl = await new Promise((res, rej) => {
-                    const req = settingsStore.get("ratesUrl");
-                    req.onsuccess = () => res(req.result ? req.result.value : null);
-                    req.onerror = () => rej(req.error);
-                });
-
-                // Default exchange rates (used when no URL is set or for local testing)
-                let rates = { USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 };
-
-                // Fetch exchange rates from the provided URL (as required)
-                if (ratesUrl) {
-                    const response = await fetch(ratesUrl);
-
-                    // If HTTP response is not successful, treat as error
-                    if (!response.ok) {
-                        throw new Error("Failed to fetch exchange rates");
-                    }
-
-                    // Parse the JSON response into the rates object
-                    rates = await response.json();
-                }
-
-                // Convert an amount from one currency to another via USD
-                function convert(sum, fromCur, toCur) {
-                    const usd = sum / rates[fromCur];
-                    return usd * rates[toCur];
-                }
+                const ratesUrl = await readRatesUrl(settingsStore);
+                const rates = await fetchRates(ratesUrl);
 
                 // Calculate total cost in the requested currency
                 let total = 0;
                 for (const c of costs) {
-                    total += convert(c.sum, c.currency, currency);
+                    total += convert(c.sum, c.currency, currency, rates);
                 }
 
                 // Resolve the Promise with the final report structure
                 resolve({
-                    year: year,
-                    month: month,
-                    costs: costs,
-                    total: { currency: currency, total: total }
+                    year,
+                    month,
+                    costs,
+                    total: { currency, total }
                 });
             }
         });
@@ -201,8 +217,10 @@
      */
     async function setRatesUrl(url) {
         return new Promise((resolve, reject) => {
-            if (!_db) {
-                reject(new Error("Database is not open. Call openCostsDB first."));
+            try {
+                requireOpenDb();
+            } catch (e) {
+                reject(e);
                 return;
             }
 
@@ -223,7 +241,6 @@
         });
     }
 
-    // Expose only the required entry point
-    window.idb = { openCostsDB: openCostsDB };
-
+    // REQUIRED: expose idb on the global object
+    window.idb = { openCostsDB };
 })();
