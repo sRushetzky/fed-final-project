@@ -1,11 +1,16 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
 app.use(cors({ origin: "*" }));
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 app.get("/rates.json", (req, res) => {
-    res.json({ USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 });
+    res.sendFile(path.join(__dirname, "rates.json"));
 });
 
 const port = process.env.PORT || 3000;
