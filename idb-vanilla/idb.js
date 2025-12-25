@@ -39,6 +39,7 @@
 
     // ----------------------- Helpers (avoid duplication) -----------------------
 
+    // Ensure the database was opened before any operation
     function requireOpenDb() {
         if (!_db) throw new Error("Database is not open. Call openCostsDB first.");
     }
@@ -54,6 +55,7 @@
         return usd * rates[toCur];
     }
 
+    // Read the exchange rates URL from the "settings" object store
     function readRatesUrl(settingsStore) {
         return new Promise((res, rej) => {
             const req = settingsStore.get("ratesUrl");

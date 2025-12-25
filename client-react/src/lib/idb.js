@@ -1,10 +1,12 @@
 // src/lib/idb.js (React / ES Modules)
 
+// Holds the opened IndexedDB instance
 let _db = null;
 
-/**
+/*
  * openCostsDB(databaseName, databaseVersion)
- * Returns a Promise that resolves to an object representing the database API.
+ * Takes a database name and version and returns a Promise that resolves
+ * to an object representing the database API.
  */
 export async function openCostsDB(databaseName, databaseVersion) {
     return new Promise((resolve, reject) => {
@@ -16,15 +18,18 @@ export async function openCostsDB(databaseName, databaseVersion) {
             if (!db.objectStoreNames.contains("costs")) {
                 db.createObjectStore("costs", { keyPath: "id", autoIncrement: true });
             }
+
             if (!db.objectStoreNames.contains("settings")) {
                 db.createObjectStore("settings", { keyPath: "key" });
             }
         };
 
         request.onsuccess = function (event) {
+            // event.target.result is the opened IDBDatabase instance
+            // Save it in a private variable so other functions can access it
             _db = event.target.result;
 
-            // keep same API style you used before
+            // Resolve with an object that exposes the required API
             resolve({
                 addCost,
                 getReport,
@@ -40,22 +45,26 @@ export async function openCostsDB(databaseName, databaseVersion) {
     });
 }
 
-/* ----------------------- Helpers (avoid duplication) ----------------------- */
+// ----------------------- Helpers (avoid duplication) -----------------------
 
+// Ensure the database was opened before any operation
 function requireOpenDb() {
     if (!_db) throw new Error("Database is not open. Call openCostsDB first.");
 }
 
+// Default exchange rates (used when no URL is set or for local testing)
 function defaultRates() {
     return { USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 };
 }
 
+// Convert an amount from one currency to another via USD
 function convert(sum, fromCur, toCur, rates) {
     const usd = sum / rates[fromCur];
     return usd * rates[toCur];
 }
 
-async function readRatesUrl(settingsStore) {
+// Read the exchange rates URL from the "settings" object store
+function readRatesUrl(settingsStore) {
     return new Promise((res, rej) => {
         const req = settingsStore.get("ratesUrl");
         req.onsuccess = () => res(req.result ? req.result.value : null);
@@ -63,23 +72,28 @@ async function readRatesUrl(settingsStore) {
     });
 }
 
+// Fetch exchange rates from the provided URL (as required)
 async function fetchRates(ratesUrl) {
     let rates = defaultRates();
 
     if (ratesUrl) {
         const response = await fetch(ratesUrl);
+
+        // If HTTP response is not successful, treat as error
         if (!response.ok) throw new Error("Failed to fetch exchange rates");
+
+        // Parse the JSON response into the rates object
         rates = await response.json();
     }
 
     return rates;
 }
 
-/* ------------------------------ API methods ------------------------------ */
+// ------------------------------ API methods ------------------------------
 
-/**
+/*
  * addCost(cost)
- * Adds a new cost item to IndexedDB and resolves to the added item.
+ * Adds a new cost item and returns a Promise for the added item.
  */
 async function addCost(cost) {
     return new Promise((resolve, reject) => {
@@ -101,11 +115,17 @@ async function addCost(cost) {
             day: now.getDate()
         };
 
+        // Create a readwrite transaction on the "costs" object store
         const tx = _db.transaction(["costs"], "readwrite");
+
+        // Get a reference to the "costs" object store inside the transaction
         const store = tx.objectStore("costs");
+
+        // Add the record to the object store (asynchronous request)
         const request = store.add(record);
 
         request.onsuccess = function () {
+            // Resolve with the newly added cost item structure
             resolve({
                 sum: record.sum,
                 currency: record.currency,
@@ -121,13 +141,13 @@ async function addCost(cost) {
     });
 }
 
-/**
+/*
  * getReport(year, month, currency)
- * Returns a Promise resolving to a detailed report object.
+ * Returns a Promise for a detailed monthly report in a specific currency.
  *
- * IMPORTANT (for charts):
- * This React version returns costs with sum already converted to the requested currency,
- * so the UI can safely aggregate by category without extra conversion.
+ * IMPORTANT (React version):
+ * - costs are already converted to the requested currency
+ * - this allows charts to aggregate values without extra conversion
  */
 async function getReport(year, month, currency) {
     return new Promise((resolve, reject) => {
@@ -138,11 +158,15 @@ async function getReport(year, month, currency) {
             return;
         }
 
+        // Open a readonly transaction on both "costs" and "settings"
         const tx = _db.transaction(["costs", "settings"], "readonly");
         const costsStore = tx.objectStore("costs");
         const settingsStore = tx.objectStore("settings");
 
+        // Will hold all costs matching the requested month/year
         const rawCosts = [];
+
+        // Cursor is used to iterate over all records in the "costs" store
         const cursorReq = costsStore.openCursor();
 
         cursorReq.onerror = function () {
@@ -150,14 +174,19 @@ async function getReport(year, month, currency) {
         };
 
         cursorReq.onsuccess = function (event) {
+            // event.target.result is either a cursor or null (end of store)
             const cursor = event.target.result;
 
             if (!cursor) {
+                // Cursor reached the end → all costs were read
+                // Now we can load exchange rates and calculate the report
                 build().catch(reject);
                 return;
             }
 
             const r = cursor.value;
+
+            // Keep only records from the requested year and month
             if (r.year === year && r.month === month) {
                 rawCosts.push({
                     sum: r.sum,
@@ -168,9 +197,11 @@ async function getReport(year, month, currency) {
                 });
             }
 
+            // Continue to the next record
             cursor.continue();
         };
 
+        // Loads exchange rates (via fetch if URL exists) and builds final report
         async function build() {
             const ratesUrl = await readRatesUrl(settingsStore);
             const rates = await fetchRates(ratesUrl);
@@ -181,9 +212,11 @@ async function getReport(year, month, currency) {
                 currency
             }));
 
+            // Calculate total cost in the requested currency
             let total = 0;
             for (const c of convertedCosts) total += c.sum;
 
+            // Resolve the Promise with the final report structure
             resolve({
                 year,
                 month,
@@ -194,9 +227,9 @@ async function getReport(year, month, currency) {
     });
 }
 
-/**
+/*
  * setRatesUrl(url)
- * Saves exchange-rates URL in IndexedDB settings.
+ * Saves the exchange-rates URL in the database settings.
  */
 async function setRatesUrl(url) {
     return new Promise((resolve, reject) => {
@@ -207,8 +240,11 @@ async function setRatesUrl(url) {
             return;
         }
 
+        // Open a readwrite transaction on the "settings" object store
         const tx = _db.transaction(["settings"], "readwrite");
         const store = tx.objectStore("settings");
+
+        // Store the URL under the key "ratesUrl"
         const request = store.put({ key: "ratesUrl", value: url });
 
         request.onsuccess = function () {
@@ -221,15 +257,15 @@ async function setRatesUrl(url) {
     });
 }
 
-/**
+/*
  * getPieChartData(year, month, currency)
- * Returns: [{ name: <category>, value: <sumInSelectedCurrency> }, ...]
- * Uses getReport (which already converts costs in this React version).
+ * Returns:
+ * [{ name: <category>, value: <sumInSelectedCurrency> }, ...]
  */
 async function getPieChartData(year, month, currency) {
     const report = await getReport(year, month, currency);
-
     const map = new Map();
+
     for (const c of report.costs) {
         map.set(c.category, (map.get(c.category) || 0) + c.sum);
     }
@@ -240,10 +276,12 @@ async function getPieChartData(year, month, currency) {
     }));
 }
 
-/**
+/*
  * getBarChartData(year, currency)
- * Returns: [{ month: 1..12, total: <sumInSelectedCurrency> }, ...]
- * Single DB scan + single rates fetch (no 12x getReport).
+ * Returns:
+ * [{ month: 1..12, total: <sumInSelectedCurrency> }, ...]
+ *
+ * Single DB scan + single rates fetch
  */
 async function getBarChartData(year, currency) {
     return new Promise((resolve, reject) => {
@@ -258,8 +296,9 @@ async function getBarChartData(year, currency) {
         const costsStore = tx.objectStore("costs");
         const settingsStore = tx.objectStore("settings");
 
-        // collect raw items per month (to convert after we load rates once)
+        // Collect raw items per month (to convert after we load rates once)
         const perMonth = Array.from({ length: 12 }, () => []);
+
         const cursorReq = costsStore.openCursor();
 
         cursorReq.onerror = function () {
@@ -276,7 +315,10 @@ async function getBarChartData(year, currency) {
 
             const r = cursor.value;
             if (r.year === year && r.month >= 1 && r.month <= 12) {
-                perMonth[r.month - 1].push({ sum: r.sum, currency: r.currency });
+                perMonth[r.month - 1].push({
+                    sum: r.sum,
+                    currency: r.currency
+                });
             }
 
             cursor.continue();
@@ -287,12 +329,18 @@ async function getBarChartData(year, currency) {
             const rates = await fetchRates(ratesUrl);
 
             const data = [];
+
             for (let m = 1; m <= 12; m++) {
                 let total = 0;
+
                 for (const item of perMonth[m - 1]) {
                     total += convert(item.sum, item.currency, currency, rates);
                 }
-                data.push({ month: m, total: Number(total.toFixed(2)) });
+
+                data.push({
+                    month: m,
+                    total: Number(total.toFixed(2))
+                });
             }
 
             resolve(data);
