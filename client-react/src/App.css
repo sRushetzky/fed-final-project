@@ -1,42 +1,75 @@
+/* App.css */
+/* Global/root layout rules for the application */
+
+/* Root container sizing and centering */
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+    /* Limit content width for large screens */
+    max-width: 1280px;
+
+    /* Center the root container horizontally */
+    margin: 0 auto;
+
+    /* Add consistent padding around the app */
+    padding: 2rem;
+
+    /* Default text alignment (you can override per component if needed) */
+    text-align: center;
 }
 
+/* Generic logo styling (used by Vite template / optional app logo) */
 .logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
+    /* Visual size of the logo */
+    height: 6em;
+
+    /* Space around the logo */
+    padding: 1.5em;
+
+    /* Hint the browser about upcoming filter changes for smoother animations */
+    will-change: filter;
+
+    /* Smooth hover transition for the filter effect */
+    transition: filter 300ms;
 }
+
+/* Hover effect for the generic logo */
 .logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+    /* Drop shadow glow on hover */
+    filter: drop-shadow(0 0 2em #646cffaa);
 }
+
+/* Hover effect specifically for a React logo (if used) */
 .logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+    /* React-blue glow on hover */
+    filter: drop-shadow(0 0 2em #61dafbaa);
 }
 
+/* Keyframes for spinning logo animation */
 @keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+    /* Start rotation */
+    from {
+        transform: rotate(0deg);
+    }
+
+    /* End rotation */
+    to {
+        transform: rotate(360deg);
+    }
 }
 
+/* Apply animation only if the user did NOT request reduced motion */
 @media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+    /* Spin the second anchor's logo (Vite template behavior) */
+    a:nth-of-type(2) .logo {
+        animation: logo-spin infinite 20s linear;
+    }
 }
 
+/* Generic card spacing (Vite template utility class) */
 .card {
-  padding: 2em;
+    padding: 2em;
 }
 
+/* Secondary muted text color (Vite template utility class) */
 .read-the-docs {
-  color: #888;
+    color: #888;
 }

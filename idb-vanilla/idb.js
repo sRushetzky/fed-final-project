@@ -1,6 +1,6 @@
 // idb.js (Vanilla JS - synced structure with React version)
 (function () {
-    // Holds the opened IndexedDB instance
+    // Holds the opened IndexedDB instance (kept private inside this IIFE)
     let _db = null;
 
     /*
@@ -9,28 +9,36 @@
      * to an object representing the database API.
      */
     async function openCostsDB(databaseName, databaseVersion) {
+        // Open (or create/upgrade) the IndexedDB database
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(databaseName, databaseVersion);
 
+            // Runs when DB is first created or when version is bumped
             request.onupgradeneeded = function (event) {
                 const db = event.target.result;
 
+                // Create the "costs" store if it doesn't exist
                 if (!db.objectStoreNames.contains("costs")) {
                     db.createObjectStore("costs", { keyPath: "id", autoIncrement: true });
                 }
+
+                // Create the "settings" store if it doesn't exist
                 if (!db.objectStoreNames.contains("settings")) {
                     db.createObjectStore("settings", { keyPath: "key" });
                 }
             };
 
+            // Runs when the database is successfully opened
             request.onsuccess = function (event) {
                 // event.target.result is the opened IDBDatabase instance
                 // Save it in a private variable so other functions can access it
                 _db = event.target.result;
+
                 // Resolve with an object that exposes the required API
                 resolve({ addCost, getReport, setRatesUrl });
             };
 
+            // Runs when opening the database fails
             request.onerror = function () {
                 reject(request.error);
             };
@@ -41,7 +49,9 @@
 
     // Ensure the database was opened before any operation
     function requireOpenDb() {
-        if (!_db) throw new Error("Database is not open. Call openCostsDB first.");
+        if (!_db) {
+            throw new Error("Database is not open. Call openCostsDB first.");
+        }
     }
 
     // Default exchange rates (used when no URL is set or for local testing)
@@ -57,23 +67,28 @@
 
     // Read the exchange rates URL from the "settings" object store
     function readRatesUrl(settingsStore) {
-        return new Promise((res, rej) => {
+        return new Promise((resolve, reject) => {
             const req = settingsStore.get("ratesUrl");
-            req.onsuccess = () => res(req.result ? req.result.value : null);
-            req.onerror = () => rej(req.error);
+
+            // If a value exists, return its "value" property, otherwise null
+            req.onsuccess = () => resolve(req.result ? req.result.value : null);
+            req.onerror = () => reject(req.error);
         });
     }
 
     // Fetch exchange rates from the provided URL (as required)
     async function fetchRates(ratesUrl) {
+        // Start with defaults (used if no URL is configured)
         let rates = defaultRates();
 
+        // If a URL is provided, load it with Fetch API
         if (ratesUrl) {
-            console.log(`Fetching exchange rates from ${ratesUrl}`);
             const response = await fetch(ratesUrl);
 
             // If HTTP response is not successful, treat as error
-            if (!response.ok) throw new Error("Failed to fetch exchange rates");
+            if (!response.ok) {
+                throw new Error("Failed to fetch exchange rates");
+            }
 
             // Parse the JSON response into the rates object
             rates = await response.json();
@@ -90,6 +105,7 @@
      */
     async function addCost(cost) {
         return new Promise((resolve, reject) => {
+            // Validate DB is open before we start a transaction
             try {
                 requireOpenDb();
             } catch (e) {
@@ -97,6 +113,7 @@
                 return;
             }
 
+            // Attach today's date to the cost item
             const now = new Date();
             const record = {
                 sum: cost.sum,
@@ -117,6 +134,7 @@
             // Add the record to the object store (asynchronous request)
             const request = store.add(record);
 
+            // When the add completes successfully, resolve with the added item shape
             request.onsuccess = function () {
                 // Resolve with the newly added cost item structure
                 resolve({
@@ -128,6 +146,7 @@
                 });
             };
 
+            // If the add fails, reject with the IndexedDB error
             request.onerror = function () {
                 reject(request.error);
             };
@@ -140,6 +159,7 @@
      */
     async function getReport(year, month, currency) {
         return new Promise((resolve, reject) => {
+            // Validate DB is open before reading data
             try {
                 requireOpenDb();
             } catch (e) {
@@ -158,14 +178,17 @@
             // Cursor is used to iterate over all records in the "costs" store
             const cursorReq = costsStore.openCursor();
 
+            // Cursor error handler
             cursorReq.onerror = function () {
                 reject(cursorReq.error);
             };
 
+            // Cursor success handler (runs repeatedly until cursor is null)
             cursorReq.onsuccess = function (event) {
                 // event.target.result is either a cursor or null (end of store)
                 const cursor = event.target.result;
 
+                // If cursor is null, we finished scanning all records
                 if (!cursor) {
                     // Cursor reached the end → all costs were read
                     // Now we can load exchange rates and calculate the report
@@ -173,6 +196,7 @@
                     return;
                 }
 
+                // Current record from the store
                 const r = cursor.value;
 
                 // Keep only records from the requested year and month
@@ -194,6 +218,8 @@
             async function build() {
                 // Read the exchange rates URL from the "settings" object store
                 const ratesUrl = await readRatesUrl(settingsStore);
+
+                // Fetch exchange rates (or use defaults if no URL is set)
                 const rates = await fetchRates(ratesUrl);
 
                 // Calculate total cost in the requested currency
@@ -219,6 +245,7 @@
      */
     async function setRatesUrl(url) {
         return new Promise((resolve, reject) => {
+            // Validate DB is open before writing settings
             try {
                 requireOpenDb();
             } catch (e) {
@@ -233,16 +260,18 @@
             // Store the URL under the key "ratesUrl"
             const request = store.put({ key: "ratesUrl", value: url });
 
+            // Resolve true when saved successfully
             request.onsuccess = function () {
                 resolve(true);
             };
 
+            // Reject if saving fails
             request.onerror = function () {
                 reject(request.error);
             };
         });
     }
 
-    // REQUIRED: expose idb on the global object
+    // REQUIRED: expose idb on the global object (vanilla testing expects window.idb)
     window.idb = { openCostsDB };
 })();
