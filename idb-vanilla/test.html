@@ -20,6 +20,7 @@
             console.log("creating db succeeded");
 
             // 1) Set exchange rates URL (must be accessible + CORS enabled)
+            //(It works even without set rates URL, by fetching the default rates.json)
             const ratesUrl = "https://fed-final-project-up72.onrender.com/rates.json";
             await db.setRatesUrl(ratesUrl);
             console.log("setRatesUrl succeeded:", ratesUrl);

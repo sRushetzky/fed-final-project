@@ -60,10 +60,31 @@ function requireOpenDb() {
     }
 }
 
-// Default exchange rates (used when no URL is set or for local testing)
-function defaultRates() {
-    return { USD: 1, GBP: 0.6, EURO: 0.7, ILS: 3.4 };
+// Default exchange rates endpoint (used when user did not provide a custom URL)
+const DEFAULT_RATES_URL =
+    "https://fed-final-project-up72.onrender.com/rates.json";
+
+// Fetch default exchange rates from the server
+// This function ALWAYS performs a fetch, as required by the project instructions
+async function defaultRates() {
+    // Send HTTP request to the default rates endpoint
+    const response = await fetch(DEFAULT_RATES_URL, {
+        // Disable cache to always get the latest rates
+        cache: "no-store",
+    });
+
+    // If the HTTP response status is not OK, treat it as an error
+    if (!response.ok) {
+        throw new Error("Failed to fetch exchange rates");
+    }
+
+    // Parse the JSON response body into a JavaScript object
+    const rates = await response.json();
+
+    // Return the exchange rates object to the caller
+    return rates;
 }
+
 
 // Convert an amount from one currency to another via USD
 function convert(sum, fromCur, toCur, rates) {
@@ -82,24 +103,32 @@ function readRatesUrl(settingsStore) {
     });
 }
 
-// Fetch exchange rates from the provided URL (as required)
+// Fetch exchange rates from a user-provided URL or from the default server
 async function fetchRates(ratesUrl) {
-    // Start with defaults (used if no URL is configured)
-    let rates = defaultRates();
-
-    // If a URL is provided, load it with Fetch API
+    // If the user provided a custom rates URL, fetch from that URL
     if (ratesUrl) {
-        const response = await fetch(ratesUrl);
+        const response = await fetch(ratesUrl, {
+            // Disable cache to ensure fresh data
+            cache: "no-store",
+        });
 
-        // If HTTP response is not successful, treat as error
+        // If the HTTP response is not OK, treat it as an error
         if (!response.ok) {
             throw new Error("Failed to fetch exchange rates");
         }
 
-        // Parse the JSON response into the rates object
-        rates = await response.json();
+        // Parse the JSON response into an exchange rates object
+        const rates = await response.json();
+
+        // Return the fetched rates
+        return rates;
     }
 
+    // If no custom URL was provided by the user,
+    // fetch exchange rates from the default server (Render)
+    const rates = await defaultRates();
+
+    // Return the default fetched rates
     return rates;
 }
 
